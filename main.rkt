@@ -10,8 +10,7 @@
 ;; To view documentation:
 ;;   $ raco docs <<name>>
 
-(require racket/hash
-         racket/string
+(require racket/string
          html-parsing
          json
          net/http-client
