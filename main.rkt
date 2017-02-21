@@ -87,7 +87,7 @@
   (define (make-pairs s)
     (let* ([key (car (regexp-match #rx"[A-Za-z-]*:" s))]
            [val (string-replace s key "")])
-      (list (string->symbol (string-trim (string-replace key ":" "")))
+      (list (string->symbol (string-titlecase (string-trim (string-replace key ":" ""))))
             (string-trim val))))
   (make-immutable-hasheq
    (map (λ (s)
@@ -120,21 +120,24 @@
   (define h4 (merge-headers '(#"foo: a") '(#"foo: b" #"baz: c")))
   (define h5 (merge-headers '(#"foo: b") '(#"foo: a") '(#"baz: c" #"foo: c")))
   (define h6 (merge-headers '("foo: b") '(#"foo: a") '("baz: c" #"foo: c")))
+  (define h7 (merge-headers '("Content-Type: b") '(#"Content-type: a") '("content-type: c" #"foo: c")))
 
-  (check-equal? h0 '("foo: a"))
-  (check-equal? h1 '("foo: a"))
-  (check-equal? h2 '("bar: b" "baz: c" "foo: a"))
-  (check-equal? h3 '("baz: c" "foo: a"))
+  (check-equal? h0 '("Foo: a"))
+  (check-equal? h1 '("Foo: a"))
+  (check-equal? h2 '("Bar: b" "Baz: c" "Foo: a"))
+  (check-equal? h3 '("Baz: c" "Foo: a"))
 
   ; first set of dupe headers wins: "foo: a"
-  (check-equal? h4 '("baz: c" "foo: a"))
+  (check-equal? h4 '("Baz: c" "Foo: a"))
 
   ; first set of dupe headers wins: "foo: b"
-  (check-equal? h5 '("baz: c" "foo: b"))
+  (check-equal? h5 '("Baz: c" "Foo: b"))
 
   ; can take bytes or strings
-  (check-equal? h6 '("baz: c" "foo: b")))
+  (check-equal? h6 '("Baz: c" "Foo: b"))
 
+  ; can deal with kludgy casing in header names
+  (check-equal? h7 '("Content-Type: b" "Foo: c")))
 
 ;; Requester updaters
 ;; ==================
