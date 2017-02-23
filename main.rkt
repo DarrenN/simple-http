@@ -71,13 +71,6 @@
 (define json-requester (requester "" JSON-HEADERS #f))
 (define xml-requester (requester "" XML-HEADERS #f))
 
-(module+ test
-  (require rackunit)
-
-  (check-pred requester? json-requester)
-  (check-pred requester? html-requester)
-  (check-pred requester? xml-requester))
-
 
 ;; Header utilities
 ;; ================
@@ -97,13 +90,6 @@
                s)))
         headers)))
 
-(module+ test
-  (define headers (map-headers (map string->bytes/utf-8 JSON-HEADERS)))
-  
-  (check-pred hash-eq? headers)
-  (for ([h (hash-keys headers)])
-    (check-true (hash-has-key? headers h))))
-
 ;; Merges header list onto successive lists.
 ;; Removes duplicate headers (first set in arg position wins) and sorts list
 (define (merge-headers . hs)
@@ -112,32 +98,6 @@
          [hl (hash->list hm)])
     (sort (map (λ (s) (format "~a: ~a" (car s) (cadr s))) hl) string<?)))
 
-(module+ test
-  (define h0 (merge-headers '() '(#"foo: a")))
-  (define h1 (merge-headers '(#"foo: a") '()))
-  (define h2 (merge-headers '(#"foo: a" #"bar: b") '(#"baz: c")))
-  (define h3 (merge-headers '(#"foo: a") '(#"foo: a" #"baz: c")))
-  (define h4 (merge-headers '(#"foo: a") '(#"foo: b" #"baz: c")))
-  (define h5 (merge-headers '(#"foo: b") '(#"foo: a") '(#"baz: c" #"foo: c")))
-  (define h6 (merge-headers '("foo: b") '(#"foo: a") '("baz: c" #"foo: c")))
-  (define h7 (merge-headers '("Content-Type: b") '(#"Content-type: a") '("content-type: c" #"foo: c")))
-
-  (check-equal? h0 '("Foo: a"))
-  (check-equal? h1 '("Foo: a"))
-  (check-equal? h2 '("Bar: b" "Baz: c" "Foo: a"))
-  (check-equal? h3 '("Baz: c" "Foo: a"))
-
-  ; first set of dupe headers wins: "foo: a"
-  (check-equal? h4 '("Baz: c" "Foo: a"))
-
-  ; first set of dupe headers wins: "foo: b"
-  (check-equal? h5 '("Baz: c" "Foo: b"))
-
-  ; can take bytes or strings
-  (check-equal? h6 '("Baz: c" "Foo: b"))
-
-  ; can deal with kludgy casing in header names
-  (check-equal? h7 '("Content-Type: b" "Foo: c")))
 
 ;; Requester updaters
 ;; ==================
@@ -154,52 +114,15 @@
 (define (update-ssl req nssl)
   (struct-copy requester req [ssl nssl]))
 
-(module+ test
-  (define host0 (update-host html-requester "groundwork.com"))
-  (check-equal? (requester-host html-requester) "")
-  (check-equal? (requester-host host0) "groundwork.com")
-
-  (define hdrs0 (update-headers html-requester '("X-Foo: Foo" "X-Bar: Bar")))
-  (define hdrs1
-    (update-headers
-     html-requester
-     '("Accept: text/html; charset=latin-1" "X-Bar: Bar")))
-
-  (check-equal?
-   (requester-headers hdrs0)
-   '("Accept: text/html; charset=utf-8"
-     "X-Bar: Bar"
-     "X-Foo: Foo"))
-
-  (check-equal?
-   (requester-headers hdrs1)
-   '("Accept: text/html; charset=latin-1"
-     "X-Bar: Bar"))
-
-  (define ssl0 (update-ssl json-requester #t))
-  (check-equal? (requester-ssl ssl0) #t))
-
-;; rename params->string
-(define (make-params ps)
+(define (params->string ps)
   (if (not (empty? ps))
       (format "?~a" (alist->form-urlencoded ps))
       ""))
 
-(module+ test
-  (require rackunit)
-
-  (check-equal? (make-params '()) "")
-  (check-equal? (make-params '((foo . "12"))) "?foo=12")
-  (check-equal? (make-params '((foo . "12") (bar . "bar"))) "?foo=12&bar=bar"))
-
-;; rename add-uri-params
+;; TODO: rename this?
 (define (make-uri uri [params '()])
-  (format "~a~a" uri (make-params params)))
+  (format "~a~a" uri (params->string params)))
 
-(module+ test
-  (check-equal? (make-uri "groundwork.com") "groundwork.com")
-  (check-equal? (make-uri "groundwork.com" '((foo . "12") (bar . "baz")))
-                "groundwork.com?foo=12&bar=baz"))
 
 ;; Status Checking
 ;; ===============
@@ -233,42 +156,6 @@
   (let ([status (get-status resp)])
     (regexp-match? #rx"30[0-8]" status)))
 
-(module+ test
-  (define hds (make-hash '((Access-Control-Allow-Credentials . ("true")))))
-  (define body "body")
-  
-  (define jresp (json-response "HTTP/1.1 200 OK" hds body))
-  (define hresp (html-response "HTTP/1.1 200 OK" hds body))
-  (define xresp (xml-response "HTTP/1.1 200 OK" hds body))
-  (define tresp (text-response "HTTP/1.1 200 OK" hds body))
-
-  (check-equal? (get-status jresp) "HTTP/1.1 200 OK")
-  (check-equal? (get-status hresp) "HTTP/1.1 200 OK")
-  (check-equal? (get-status xresp) "HTTP/1.1 200 OK")
-  (check-equal? (get-status tresp) "HTTP/1.1 200 OK")
-
-  (define r200 (json-response "HTTP/1.1 200 OK" hds body))
-  (define r201 (json-response "HTTP/1.1 201 Created" hds body))
-  (define r209 (json-response "HTTP/1.1 209 Unassigned" hds body))
-  (define r226 (json-response "HTTP/1.1 226 IM Used" hds body))
-  (define r301 (json-response "HTTP/1.1 301 Moved Permanently" hds body))
-  (define r400 (json-response "HTTP/1.1 400 Bad Request" hds body))
-  (define r404 (json-response "HTTP/1.1 404 Not Found" hds body))
-  (define r500 (json-response "HTTP/1.1 500 Server Error" hds body))
-  (define r504 (json-response "HTTP/1.1 504 Gateway Timeout" hds body))
-
-  (check-pred http-success? r200)
-  (check-pred http-success? r201)
-  (check-false (http-success? r209))
-  (check-pred http-success? r226)
-
-  (check-pred http-redirect? r301)
-  (check-false (http-success? r301))
-
-  (check-pred http-error? r400)
-  (check-pred http-error? r404)
-  (check-pred http-error? r500)
-  (check-pred http-error? r504))
 
 ;; Response handling
 ;; =================
@@ -303,8 +190,153 @@
        (xml-response status headers (read-xml response))]
       [else (text-response status headers (port->string response))])))
 
+
+;; Make HTTP Requests
+;; ==================
+
+;; define-http-method macro defines the interface for request functions
+;; (define-http-method get '"GET") -> (get requester "/get")
+
+(define-syntax (define-http-method stx)
+  (syntax-case stx ()
+    [(_ method verb)
+     #'(define (method req uri #:data [data #f] #:params [params '()])
+         (let ([nuri (make-uri uri params)]
+               [host (requester-host req)]
+               [headers (requester-headers req)]
+               [ssl (requester-ssl req)])
+           (let-values ([(status headers response)
+                         (http-sendrecv host nuri #:ssl? ssl #:method verb
+                                        #:headers headers #:data data)])
+      (create-response
+       (bytes->string/utf-8 status) (map-headers headers) response))))]))
+
+;; Sets up functions named after HTTP verbs
+(define-http-method get '"GET")
+(define-http-method post '"POST")
+(define-http-method put '"PUT")
+(define-http-method patch '"PATCH")
+(define-http-method delete '"DELETE")
+
+;; =====
+;; Tests
+;; =====
+
 (module+ test
-  ; matches JSON response
+  (require rackunit)
+
+  ; Requesters
+  (check-pred requester? json-requester)
+  (check-pred requester? html-requester)
+  (check-pred requester? xml-requester)
+
+  ; Headers
+  (define headers (map-headers (map string->bytes/utf-8 JSON-HEADERS)))
+  
+  (check-pred hash-eq? headers)
+  (for ([h (hash-keys headers)])
+    (check-true (hash-has-key? headers h)))
+
+  (define h0 (merge-headers '() '(#"foo: a")))
+  (define h1 (merge-headers '(#"foo: a") '()))
+  (define h2 (merge-headers '(#"foo: a" #"bar: b") '(#"baz: c")))
+  (define h3 (merge-headers '(#"foo: a") '(#"foo: a" #"baz: c")))
+  (define h4 (merge-headers '(#"foo: a") '(#"foo: b" #"baz: c")))
+  (define h5 (merge-headers '(#"foo: b") '(#"foo: a") '(#"baz: c" #"foo: c")))
+  (define h6 (merge-headers '("foo: b") '(#"foo: a") '("baz: c" #"foo: c")))
+  (define h7 (merge-headers '("Content-Type: b") '(#"Content-type: a")
+                            '("content-type: c" #"foo: c")))
+
+  (check-equal? h0 '("Foo: a"))
+  (check-equal? h1 '("Foo: a"))
+  (check-equal? h2 '("Bar: b" "Baz: c" "Foo: a"))
+  (check-equal? h3 '("Baz: c" "Foo: a"))
+
+  ; first set of dupe headers wins: "foo: a"
+  (check-equal? h4 '("Baz: c" "Foo: a"))
+
+  ; first set of dupe headers wins: "foo: b"
+  (check-equal? h5 '("Baz: c" "Foo: b"))
+
+  ; can take bytes or strings
+  (check-equal? h6 '("Baz: c" "Foo: b"))
+
+  ; can deal with kludgy casing in header names
+  (check-equal? h7 '("Content-Type: b" "Foo: c"))
+
+  (define host0 (update-host html-requester "groundwork.com"))
+  (check-equal? (requester-host html-requester) "")
+  (check-equal? (requester-host host0) "groundwork.com")
+
+  (define hdrs0 (update-headers html-requester '("X-Foo: Foo" "X-Bar: Bar")))
+  (define hdrs1
+    (update-headers
+     html-requester
+     '("Accept: text/html; charset=latin-1" "X-Bar: Bar")))
+
+  (check-equal?
+   (requester-headers hdrs0)
+   '("Accept: text/html; charset=utf-8"
+     "X-Bar: Bar"
+     "X-Foo: Foo"))
+
+  (check-equal?
+   (requester-headers hdrs1)
+   '("Accept: text/html; charset=latin-1"
+     "X-Bar: Bar"))
+
+  (define ssl0 (update-ssl json-requester #t))
+  (check-equal? (requester-ssl ssl0) #t)
+
+  ; Params
+  (check-equal? (params->string '()) "")
+  (check-equal? (params->string '((foo . "12"))) "?foo=12")
+  (check-equal? (params->string '((foo . "12") (bar . "bar"))) "?foo=12&bar=bar")
+
+  ; URI
+  (check-equal? (make-uri "groundwork.com") "groundwork.com")
+  (check-equal? (make-uri "groundwork.com" '((foo . "12") (bar . "baz")))
+                "groundwork.com?foo=12&bar=baz")
+
+  ; Status checking
+  (define hds (make-hash '((Access-Control-Allow-Credentials . ("true")))))
+  (define body "body")
+  
+  (define jresp (json-response "HTTP/1.1 200 OK" hds body))
+  (define hresp (html-response "HTTP/1.1 200 OK" hds body))
+  (define xresp (xml-response "HTTP/1.1 200 OK" hds body))
+  (define tresp (text-response "HTTP/1.1 200 OK" hds body))
+
+  (check-equal? (get-status jresp) "HTTP/1.1 200 OK")
+  (check-equal? (get-status hresp) "HTTP/1.1 200 OK")
+  (check-equal? (get-status xresp) "HTTP/1.1 200 OK")
+  (check-equal? (get-status tresp) "HTTP/1.1 200 OK")
+
+  (define r200 (json-response "HTTP/1.1 200 OK" hds body))
+  (define r201 (json-response "HTTP/1.1 201 Created" hds body))
+  (define r209 (json-response "HTTP/1.1 209 Unassigned" hds body))
+  (define r226 (json-response "HTTP/1.1 226 IM Used" hds body))
+  (define r301 (json-response "HTTP/1.1 301 Moved Permanently" hds body))
+  (define r400 (json-response "HTTP/1.1 400 Bad Request" hds body))
+  (define r404 (json-response "HTTP/1.1 404 Not Found" hds body))
+  (define r500 (json-response "HTTP/1.1 500 Server Error" hds body))
+  (define r504 (json-response "HTTP/1.1 504 Gateway Timeout" hds body))
+
+  (check-pred http-success? r200)
+  (check-pred http-success? r201)
+  (check-false (http-success? r209))
+  (check-pred http-success? r226)
+
+  (check-pred http-redirect? r301)
+  (check-false (http-success? r301))
+
+  (check-pred http-error? r400)
+  (check-pred http-error? r404)
+  (check-pred http-error? r500)
+  (check-pred http-error? r504)
+
+  ; Check responses
+  
   (check-pred json-response?
               (call-with-values
                (λ () (values
@@ -322,14 +354,15 @@
                        #"<html><head><title>Foo</title></head></html>")))
                create-response))
 
-  (check-pred xml-response?
-              (call-with-values
-               (λ () (values
-                      "HTTP 1.1/200 OK"
-                      (map-headers '("Content-Type: application/xml; charset=utf-8"))
-                      (open-input-bytes
-                       #"<?xml version=\"1.0\" ?><foo>Foo</foo>")))
-               create-response))
+  (check-pred
+   xml-response?
+   (call-with-values
+    (λ () (values
+           "HTTP 1.1/200 OK"
+           (map-headers '("Content-Type: application/xml; charset=utf-8"))
+           (open-input-bytes
+            #"<?xml version=\"1.0\" ?><foo>Foo</foo>")))
+    create-response))
 
   (check-pred text-response?
               (call-with-values
@@ -388,36 +421,10 @@
             (open-input-bytes #"blurg")))
      create-response))))
 
-;; Make HTTP Requests
-;; ==================
-
-;; define-http-method macro defines the interface for request functions
-;; (define-http-method get '"GET") -> (get requester "/get")
-
-(define-syntax (define-http-method stx)
-  (syntax-case stx ()
-    [(_ method verb)
-     #'(define (method req uri #:data [data #f] #:params [params '()])
-         (let ([nuri (make-uri uri params)]
-               [host (requester-host req)]
-               [headers (requester-headers req)]
-               [ssl (requester-ssl req)])
-           (let-values ([(status headers response)
-                         (http-sendrecv host nuri #:ssl? ssl #:method verb
-                                        #:headers headers #:data data)])
-      (create-response
-       (bytes->string/utf-8 status) (map-headers headers) response))))]))
-
-;; Sets up functions named after HTTP verbs
-(define-http-method get '"GET")
-(define-http-method post '"POST")
-(define-http-method put '"PUT")
-(define-http-method patch '"PATCH")
-(define-http-method delete '"DELETE")
-
+;; Integrations tests
 (module+ integration-test
   (require rackunit)
-
+  
   )
 
 #|
