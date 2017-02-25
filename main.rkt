@@ -422,19 +422,65 @@
      create-response))))
 
 ;; Integrations tests
-(module+ integration-test
-  (require rackunit)
+(module+ intergation-test
+  (require rackunit
+           json)
+
+  ;; JSON GET requests
   
-  )
+  (define httpbin-json (update-host json-requester "httpbin.org"))
+  (define json-get (get httpbin-json "/get"))
+  (define json-get-body (json-response-body json-get))
 
-#|
-(define httpbin (update-host json-requester "httpbin.org"))
-(get httpbin "/get")
+  (check-pred http-success? json-get)
+  (check-equal? (json-response-status json-get) "HTTP/1.1 200 OK")
+  (check-pred jsexpr? json-get-body)
 
-(define (get req uri #:params) ...)
-(define (post req uri data #:params) ... )
-(define (put req uri data #:params) ... )
-(define (patch req uri data #:params) ... )
-(define (delete req uri #:params) ...)
-|#
+  (define https-json (update-ssl httpbin-json #t))
+  (define json-ssl-get (get https-json "/get"))
 
+  (check-equal?
+   (hash-ref (json-response-body json-ssl-get) 'url)
+   "https://httpbin.org/get")
+
+  (define json-ssl-params (get https-json "/get" #:params
+                               '((query . "huevos"))))
+
+  (check-equal?
+   (hash-ref (hash-ref (json-response-body json-ssl-params) 'args) 'query)
+   "huevos")
+
+  ;; JSON POST/PUT/PATCH requests
+  
+  (define json-data
+    (jsexpr->string (make-hasheq '((colossal-squid . "drumbones")))))
+  
+  (define json-post (post httpbin-json "/post" #:data json-data))
+  (check-equal?
+   (hash-ref (json-response-body json-post) 'data)
+   json-data)
+
+  (define json-put (put httpbin-json "/put" #:data json-data))
+  (check-equal?
+   (hash-ref (json-response-body json-put) 'data)
+   json-data)
+
+  (define json-patch (patch httpbin-json "/patch" #:data json-data))
+  (check-equal?
+   (hash-ref (json-response-body json-patch) 'data)
+   json-data)
+
+  ;; Error Handling
+  (check-pred http-error? (post httpbin-json "/put" #:data json-data))
+  (check-pred http-error? (get httpbin-json "/status/404"))
+  (check-pred http-error? (get httpbin-json "/status/503"))
+
+  ;; Redirect Handling
+  (check-pred http-redirect? (get httpbin-json "/redirect/1"))
+  (check-pred http-redirect? (get httpbin-json "/redirect/5"))
+  (check-pred http-redirect?
+              (get httpbin-json "/redirect-to" #:params '((url . "foo"))))
+
+  ;; Success Handling
+  (check-pred http-success? (get httpbin-json "/status/201"))
+  (check-pred http-success? (get httpbin-json "/status/200")))
