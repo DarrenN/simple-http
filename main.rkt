@@ -422,7 +422,7 @@
      create-response))))
 
 ;; Integrations tests
-(module+ intergation-test
+(module+ integration-test
   (require rackunit
            json)
 

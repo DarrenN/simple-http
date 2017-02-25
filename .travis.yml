@@ -49,7 +49,7 @@ before_script:
 # packages without it getting stuck on a confirmation prompt.
 script:
  - raco test -x -p simple-http
- - raco test -s integration-test -p simple-http
+ - raco test -x -s integration-test -p simple-http
 
 after_success:
  - raco setup --check-pkg-deps --pkgs simple-http
