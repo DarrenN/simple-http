@@ -129,18 +129,18 @@
 ;; ===============
 
 (define (get-status resp)
-  (match resp
-    [(json-response _ _ _) (json-response-status resp)]
-    [(html-response _ _ _) (html-response-status resp)]
-    [(xml-response _ _ _) (xml-response-status resp)]
-    [(text-response _ _ _) (text-response-status resp)]))
+  (cond
+    [(json-response? resp) (json-response-status resp)]
+    [(html-response? resp) (html-response-status resp)]
+    [(xml-response? resp) (xml-response-status resp)]
+    [(text-response? resp) (text-response-status resp)]))
 
 (define (get-response-type resp)
-  (match resp
-    [(json-response _ _ _) "json"]
-    [(html-response _ _ _) "html"]
-    [(xml-response _ _ _) "xml"]
-    [(text-response _ _ _) "text"]))
+  (cond
+    [(json-response? resp) "json"]
+    [(html-response? resp) "html"]
+    [(xml-response? resp) "xml"]
+    [(text-response? resp) "text"]))
 
 ;; HTTP Status Predicates
 ;; https://www.iana.org/assignments/http-status-codes/http-status-codes.xhtml
@@ -171,7 +171,7 @@
 ;; Exception for response read errors
 (struct exn:fail:network:http:read exn:fail (type) #:transparent)
 
-;; Exception for HTTP errors
+;; Exception for HTTP errors - response is parsed
 (struct exn:fail:network:http:error exn:fail:network (code type) #:transparent)
 
 ;; Regex Content-Type header to figure out what we have
