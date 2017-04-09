@@ -64,14 +64,14 @@
 
 ;; Requesters carry context for HTTP calls (host, ssl?, default headers...)
 
-(struct requester (host headers ssl) #:transparent)
+(struct requester (host headers ssl type) #:transparent)
 
 ;; TODO: Maybe add a form-post-requester
 
-(define html-requester (requester "" HTML-HEADERS #f))
-(define json-requester (requester "" JSON-HEADERS #f))
-(define xml-requester (requester "" XML-HEADERS #f))
-
+(define html-requester (requester "" HTML-HEADERS #f 'html))
+(define json-requester (requester "" JSON-HEADERS #f 'json))
+(define xml-requester (requester "" XML-HEADERS #f 'xml))
+(define text-requester (requester "" TEXT-HEADERS #f 'text))
 
 ;; Header utilities
 ;; ================
@@ -234,12 +234,23 @@
 ;; Make HTTP Requests
 ;; ==================
 
-(define (correct-content-type? req-headers resp-headers)
-  (let* ([reqh (map-headers req-headers)]
-         [resh (map-headers resp-headers)]
-         [accept (hash-ref reqh 'Accept)]
+(define (requester-accept-header requester)
+  (let ([type (requester-type requester)])
+    (cond
+      [(eq? type 'html) "text/html"]
+      [(eq? type 'json) "application/json"]
+      [(eq? type 'xml) "text/xml"]
+      [(eq? type 'text) "text/plain"]
+      [else "*"])))
+
+; Compare the Accept header from the request to the Content-Type header in the
+; response (using a regex) to try and figure out if we have the correct response
+; type
+(define (correct-content-type? requester resp-headers)
+  (let* ([resh (map-headers resp-headers)]
+         [accept (requester-accept-header requester)]
          [ctype (hash-ref resh 'Content-Type)])
-    (regexp-match (regexp (car accept)) (car ctype))))
+    (regexp-match (regexp accept) (car ctype))))
 
 ;; define-http-method macro defines the interface for request functions
 ;; (define-http-method get '"GET") -> (get requester "/get")
@@ -269,8 +280,8 @@
              (when
                  (and
                   (or (< response-code 300) (> response-code 309))
-                  (false? (correct-content-type? headers resp-headers)))
-               (make-http-read-exn (map-headers headers) response))
+                  (false? (correct-content-type? req resp-headers)))
+               (make-http-read-exn (map-headers resp-headers) response))
              
       (create-response
        (bytes->string/utf-8 status) (map-headers resp-headers) response))))]))
