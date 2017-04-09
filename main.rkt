@@ -40,6 +40,7 @@
          http-success?
          http-exn-of-type?
          (struct-out exn:fail:network:http:read)
+         (struct-out exn:fail:network:http:error)
          (struct-out requester)
          (struct-out text-response)
          (struct-out html-response)
@@ -80,7 +81,8 @@
   (define (make-pairs s)
     (let* ([key (car (regexp-match #rx"[A-Za-z-]*:" s))]
            [val (string-replace s key "")])
-      (list (string->symbol (string-titlecase (string-trim (string-replace key ":" ""))))
+      (list (string->symbol
+             (string-titlecase (string-trim (string-replace key ":" ""))))
             (string-trim val))))
   (make-immutable-hasheq
    (map (λ (s)
@@ -97,7 +99,6 @@
          [hm (map-headers headers)]
          [hl (hash->list hm)])
     (sort (map (λ (s) (format "~a: ~a" (car s) (cadr s))) hl) string<?)))
-
 
 ;; Requester updaters
 ;; ==================
@@ -144,6 +145,13 @@
 ;; HTTP Status Predicates
 ;; https://www.iana.org/assignments/http-status-codes/http-status-codes.xhtml
 
+;; Return HTTP code as a number from response bytes
+(define (get-status-code status-bytes)
+  (string->number
+   (car (regexp-match
+         #px"\\d{3}"
+         (bytes->string/utf-8 status-bytes)))))
+
 (define (http-error? resp)
   (let ([status (get-status resp)])
     (regexp-match? #rx"4[0-9]*|5[0-9]*" status)))
@@ -163,36 +171,75 @@
 ;; Exception for response read errors
 (struct exn:fail:network:http:read exn:fail (type) #:transparent)
 
+;; Exception for HTTP errors
+(struct exn:fail:network:http:error exn:fail:network (code type) #:transparent)
+
+;; Regex Content-Type header to figure out what we have
+(define (get-content-type headers-hash)
+  (match (car (hash-ref headers-hash 'Content-Type))
+    [(regexp #rx"application/json") 'json]
+    [(regexp #rx"text/html") 'html]
+    [(regexp #rx"application/xml") 'xml]
+    [else 'text]))
+
+;; Raise an error with the response
 (define (make-http-read-exn headers response)
-  (let ([type (match (car (hash-ref headers 'Content-Type))
-                [(regexp #rx"application/json") 'json]
-                [(regexp #rx"text/html") 'html]
-                [(regexp #rx"application/xml") 'xml]
-                [else 'text])]
+  (let ([type (get-content-type headers)]
         [body (port->string response)])
-    (exn:fail:network:http:read (~a body) (current-continuation-marks) type)))
+    (raise
+     (exn:fail:network:http:read
+      (~a body) (current-continuation-marks) type))))
+
+;; Raise an error code, and inclue the response type
+(define (make-http-error-exn code headers response)
+  (let* ([type (get-content-type headers)]
+         [body (cond
+                 [(eq? type 'json) (read-json response)]
+                 [(eq? type 'html) (html->xexp response)]
+                 [(eq? type 'xml) (read-xml response)]
+                 [else (port->string response)])])
+    (raise
+     (exn:fail:network:http:error
+      (~a body) (current-continuation-marks) code type))))
 
 ;; Get the type of exception
 (define (http-exn-of-type? type v)
   (and (exn:fail:network:http:read? v)
        (eq? type (exn:fail:network:http:read-type v))))
 
+;; Try to read the error response
+(define (parse-http-error-body exn)
+  (let ([type (exn:fail:network:http:error-type exn)]
+        [body (exn-message exn)])
+    (cond
+        [(eq? type 'json) (read-json body)]
+        [(eq? type 'html) (html->xexp body)]
+        [(eq? type 'xml) (read-xml body)]
+        [else (port->string body)])))
+
 ;; Uses Content-Type to determine how to parse response data
 (define (create-response status headers response)
   (with-handlers ([exn:fail? (λ (e) (make-http-read-exn headers response))])
-    (match (car (hash-ref headers 'Content-Type))
-      [(regexp #rx"application/json")
-       (json-response status headers (read-json response))]
-      [(regexp #rx"text/html")
-       (html-response status headers
-                      (html->xexp response))]
-      [(regexp #rx"application/xml")
-       (xml-response status headers (read-xml response))]
-      [else (text-response status headers (port->string response))])))
-
+    (let ([type (get-content-type headers)])
+      (cond
+        [(eq? type 'json)
+         (json-response status headers (read-json response))]
+        [(eq? type 'html)
+         (html-response status headers (html->xexp response))]
+        [(eq? type 'xml)
+         (xml-response status headers (read-xml response))]
+        [else
+         (text-response status headers (port->string response))]))))
 
 ;; Make HTTP Requests
 ;; ==================
+
+(define (correct-content-type? req-headers resp-headers)
+  (let* ([reqh (map-headers req-headers)]
+         [resh (map-headers resp-headers)]
+         [accept (hash-ref reqh 'Accept)]
+         [ctype (hash-ref resh 'Content-Type)])
+    (regexp-match (regexp (car accept)) (car ctype))))
 
 ;; define-http-method macro defines the interface for request functions
 ;; (define-http-method get '"GET") -> (get requester "/get")
@@ -205,11 +252,28 @@
                [host (requester-host req)]
                [headers (requester-headers req)]
                [ssl (requester-ssl req)])
-           (let-values ([(status headers response)
+           (let-values ([(status resp-headers response)
                          (http-sendrecv host nuri #:ssl? ssl #:method verb
                                         #:headers headers #:data data)])
+             (define response-code (get-status-code status))
+
+             ;; Raise HTTP exn if we get an HTTP error code
+             (when (> response-code 399)
+               (make-http-error-exn
+                response-code
+                (map-headers resp-headers)
+                response))
+
+             ;; Raise read exn if the requested content type doesn't match
+             ;; the response content type and isn't a redirect 
+             (when
+                 (and
+                  (or (< response-code 300) (> response-code 309))
+                  (false? (correct-content-type? headers resp-headers)))
+               (make-http-read-exn (map-headers headers) response))
+             
       (create-response
-       (bytes->string/utf-8 status) (map-headers headers) response))))]))
+       (bytes->string/utf-8 status) (map-headers resp-headers) response))))]))
 
 ;; Sets up functions named after HTTP verbs
 (define-http-method get '"GET")
@@ -373,62 +437,70 @@
                        #"'(foo bar baz quux)")))
                create-response))
 
-
   ; Check exceptions
   
-  (check-pred exn:fail:network:http:read?
-              (call-with-values
-               (λ () (values
-                      "HTTP 1.1/200 OK"
-                      (map-headers '("Content-Type: application/json"))
-                      (open-input-bytes #"blurg")))
-               create-response))
+  (check-exn exn:fail:network:http:read?
+             (λ () (call-with-values
+                    (λ () (values
+                           "HTTP 1.1/200 OK"
+                           (map-headers '("Content-Type: application/json"))
+                           (open-input-bytes #"blurg")))
+                    create-response)))
 
-    (check-pred exn:fail:network:http:read?
-              (call-with-values
-               (λ () (values
-                      "HTTP 1.1/200 OK"
-                      (map-headers '("Content-Type: application/xml"))
-                      (open-input-bytes #"blarg")))
-               create-response))
+  (check-exn exn:fail:network:http:read?
+             (λ () (call-with-values
+                    (λ () (values
+                           "HTTP 1.1/200 OK"
+                           (map-headers '("Content-Type: application/xml"))
+                           (open-input-bytes #"blarg")))
+                    create-response)))
 
   ;; HTML Parsing is very permissive, so it won't really fail
-  (check-false (exn:fail:network:http:read?
-                (call-with-values
-                 (λ () (values
-                        "HTTP 1.1/200 OK"
-                        (map-headers '("Content-Type: text/html"))
-                        (open-input-bytes #"<\fart\\")))
-                 create-response)))
+  (check-not-exn 
+   (λ () (call-with-values
+          (λ () (values
+                 "HTTP 1.1/200 OK"
+                 (map-headers '("Content-Type: text/html"))
+                 (open-input-bytes #"<hurgle\n")))
+          create-response)))
 
+  ;; Check that the exception carries the request type, so we know what it was
+  ;; we were asking for, ex: an exception on a JSON request should have
+  ;; an http-exn-of-type? of 'json
+
+  ;; Unreadable JSON response
   (check-true
    (http-exn-of-type?
     'json
-    (call-with-values
-     (λ () (values
-            "HTTP 1.1/200 OK"
-            (map-headers '("Content-Type: application/json"))
-            (open-input-bytes #"blurg")))
-     create-response)))
+    (with-handlers ([exn:fail:network:http:read? (λ (exn) exn)])
+      (call-with-values
+       (λ () (values
+              "HTTP 1.1/200 OK"
+              (map-headers '("Content-Type: application/json"))
+              (open-input-bytes #"blurg")))
+       create-response))))
 
+  ;; Unreadable XML response
   (check-true
    (http-exn-of-type?
     'xml
-    (call-with-values
-     (λ () (values
-            "HTTP 1.1/200 OK"
-            (map-headers '("Content-Type: application/xml"))
-            (open-input-bytes #"blurg")))
-     create-response))))
+    (with-handlers ([exn:fail:network:http:read? (λ (exn) exn)])
+      (call-with-values
+       (λ () (values
+              "HTTP 1.1/200 OK"
+              (map-headers '("Content-Type: application/xml"))
+              (open-input-bytes #"blurg")))
+       create-response)))))
 
 ;; Integrations tests
-(module+ integration-test
+(module+ test
   (require rackunit
            json)
 
   ;; JSON GET requests
   
   (define httpbin-json (update-host json-requester "httpbin.org"))
+  (define httpbin-html (update-host html-requester "httpbin.org"))
   (define json-get (get httpbin-json "/get"))
   (define json-get-body (json-response-body json-get))
 
@@ -449,6 +521,17 @@
   (check-equal?
    (hash-ref (hash-ref (json-response-body json-ssl-params) 'args) 'query)
    "huevos")
+
+  (check-exn
+   exn:fail:network:http:read?
+   (λ () (get httpbin-json "/html")))
+
+  ;; Error codes have a Content-Type
+  (check-equal?
+   (with-handlers
+       ([exn:fail:network:http:error?
+         (λ (e) (exn:fail:network:http:error-type e))])
+     (get httpbin-json "/code/405")) 'html)
 
   ;; JSON POST/PUT/PATCH requests
   
@@ -471,9 +554,27 @@
    json-data)
 
   ;; Error Handling
-  (check-pred http-error? (post httpbin-json "/put" #:data json-data))
-  (check-pred http-error? (get httpbin-json "/status/404"))
-  (check-pred http-error? (get httpbin-json "/status/503"))
+
+  ; 405
+  (check-exn
+   exn:fail:network:http:error?
+   (λ () (post httpbin-json "/put" #:data json-data)))
+
+  ; 404
+  (check-exn
+   exn:fail:network:http:error?
+   (λ () (get httpbin-json "/status/404")))
+
+  ; 503
+  (check-exn
+   exn:fail:network:http:error?
+   (λ () (get httpbin-json "/status/503")))
+
+  ; Error response is parsed
+  (check-pred
+   xexpr?
+   (with-handlers ([exn:fail:network:http:error? (λ (e) (exn-message e))])
+     (get httpbin-json "/status/503")))
 
   ;; Redirect Handling
   (check-pred http-redirect? (get httpbin-json "/redirect/1"))
@@ -482,5 +583,5 @@
               (get httpbin-json "/redirect-to" #:params '((url . "foo"))))
 
   ;; Success Handling
-  (check-pred http-success? (get httpbin-json "/status/201"))
-  (check-pred http-success? (get httpbin-json "/status/200")))
+  (check-pred http-success? (get httpbin-html "/status/201"))
+  (check-pred http-success? (get httpbin-html "/status/200")))
