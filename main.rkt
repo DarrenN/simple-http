@@ -212,6 +212,7 @@
        (bytes->string/utf-8 status) (map-headers headers) response))))]))
 
 ;; Sets up functions named after HTTP verbs
+
 (define-http-method get '"GET")
 (define-http-method post '"POST")
 (define-http-method put '"PUT")
