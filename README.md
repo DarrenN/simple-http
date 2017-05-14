@@ -62,7 +62,7 @@ Example:
                    (Accept . "application/json")                  
                    (Accept-Encoding . "gzip")                     
                    (User-Agent . "Racket/6.8 (net/http-client)")))
-          (origin . "66.108.34.126")                              
+          (origin . "255.255.255.255")                              
           (args . #hasheq((bar . "hello") (foo . "12")))))        
 ```
 
