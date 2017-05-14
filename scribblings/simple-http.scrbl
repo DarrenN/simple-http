@@ -12,14 +12,7 @@
 @(define EVAL
    (make-base-eval
     #:lang 'racket
-    '(require simple-http json)
-    '(define httpbin-org
-       (update-headers
-        (update-ssl
-         (update-host json-requester "httpbin.org") #t)
-        '("Authorization: 8675309")))
-    '(define params `((foo . "12") (bar . "hello")))
-    '(define response (get httpbin-org "/get" #:params params))))
+    '(require simple-http json)))
 
 @title{simple-http}
 @author[(author+email "Darren Newton" "info@v25media.com")]
@@ -55,7 +48,32 @@ depending on which @racket[requester?] is used.
           ; Make a GET to https://httpbin.org/get?foo=12&bar=hello
           (define response (get httpbin-org "/get" #:params params)))
 
-@examples[#:eval EVAL response]
+@bold{Response:}
+
+@racketblock[
+(json-response
+ "HTTP/1.1 200 OK"
+ '#hasheq((X-Powered-By . ("Flask"))
+          (Access-Control-Allow-Credentials . ("true"))
+          (Connection . ("close"))
+          (Content-Type . ("application/json"))
+          (Via . ("1.1 vegur"))
+          (Date . ("Sun, 14 May 2017 00:18:16 GMT"))
+          (X-Processed-Time . ("0.000797033309937"))
+          (Access-Control-Allow-Origin . ("*"))
+          (Server . ("meinheld/0.6.1"))
+          (Content-Length . ("408")))
+ '#hasheq((url . "https://httpbin.org/get?foo=12&bar=hello")
+          (headers . #hasheq((Authorization . "8675309")
+                             (Host . "httpbin.org")
+                             (Connection . "close")
+                             (Content-Type . "application/json")
+                             (Accept . "application/json")
+                             (Accept-Encoding . "gzip")
+                             (User-Agent . "Racket/6.8 (net/http-client)")))
+          (origin . "255.255.255.255")
+          (args . #hasheq((bar . "hello") (foo . "12")))))
+ ]
 
 @section{Requesters}
 
