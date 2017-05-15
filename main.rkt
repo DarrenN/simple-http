@@ -505,7 +505,7 @@
        create-response)))))
 
 ;; Integrations tests
-(module+ test
+(module+ integration-test
   (require rackunit
            json)
 
