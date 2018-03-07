@@ -13,6 +13,7 @@
 (require racket/string
          html-parsing
          json
+         net/base64
          net/http-client
          net/uri-codec
          xml)
@@ -28,6 +29,7 @@
          update-host
          update-headers
          update-ssl
+         authenticate-basic
          get
          post
          put
@@ -123,6 +125,17 @@
 ;; TODO: rename this?
 (define (make-uri uri [params '()])
   (format "~a~a" uri (params->string params)))
+
+;; Constructs a basic auth header and adds it
+(define (authenticate-basic req username password)
+  (let ([auth-header (string-append
+                      "Authorization: Basic "
+                      (bytes->string/utf-8
+                       (base64-encode
+                        (string->bytes/utf-8
+                         (string-append username ":" password))
+                        "")))])
+    (update-headers req (list auth-header))))
 
 
 ;; Status Checking
@@ -361,6 +374,18 @@
    '("Accept: text/html; charset=latin-1"
      "X-Bar: Bar"))
 
+  (define hdrs2
+    (authenticate-basic
+     html-requester
+     "foo" "bar"))
+
+  (check-equal?
+   (requester-headers hdrs2)
+   '("Accept: text/html; charset=utf-8"
+     "Authorization: Basic Zm9vOmJhcg=="
+     "X-Bar: Bar"
+     "X-Foo: Foo"))
+  
   (define ssl0 (update-ssl json-requester #t))
   (check-equal? (requester-ssl ssl0) #t)
 

@@ -124,6 +124,18 @@ relevant data such as base url, use SSL, etc.
   @racket[(update-headers req '("Authorization: 8675309" "x-foo: oof"))]
 }
 
+@defproc[(authenticate-basic
+          [requester requester?]
+          [username string?]
+          [password string?])
+         requester?]{
+  Constructs an http-basic header from @racket[username] and
+  @racket[password], and then merges that header into the headers of
+  the @racket[requester] using @racket[update-headers].
+
+  @racket[(authenticate-basic req "sam@example.com" "opensesame")]
+}
+
 @section{Making requests}
 
 Requests are made using requesters to determine how data should be sent and
