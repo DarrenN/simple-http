@@ -382,9 +382,7 @@
   (check-equal?
    (requester-headers hdrs2)
    '("Accept: text/html; charset=utf-8"
-     "Authorization: Basic Zm9vOmJhcg=="
-     "X-Bar: Bar"
-     "X-Foo: Foo"))
+     "Authorization: Basic Zm9vOmJhcg=="))
   
   (define ssl0 (update-ssl json-requester #t))
   (check-equal? (requester-ssl ssl0) #t)
