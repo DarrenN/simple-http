@@ -28,6 +28,7 @@
          xml-requester
          update-host
          update-headers
+         update-port
          update-ssl
          authenticate-basic
          get
@@ -66,14 +67,14 @@
 
 ;; Requesters carry context for HTTP calls (host, ssl?, default headers...)
 
-(struct requester (host headers ssl type) #:transparent)
+(struct requester (host headers port ssl type) #:transparent)
 
 ;; TODO: Maybe add a form-post-requester
 
-(define html-requester (requester "" HTML-HEADERS #f 'html))
-(define json-requester (requester "" JSON-HEADERS #f 'json))
-(define xml-requester (requester "" XML-HEADERS #f 'xml))
-(define text-requester (requester "" TEXT-HEADERS #f 'text))
+(define html-requester (requester "" HTML-HEADERS #f #f 'html))
+(define json-requester (requester "" JSON-HEADERS #f #f 'json))
+(define xml-requester (requester "" XML-HEADERS #f #f 'xml))
+(define text-requester (requester "" TEXT-HEADERS #f #f 'text))
 
 ;; Header utilities
 ;; ================
@@ -113,6 +114,9 @@
                [headers (merge-headers
                          nheaders
                          (requester-headers req))]))
+
+(define (update-port req nport)
+  (struct-copy requester req [port nport]))
 
 (define (update-ssl req nssl)
   (struct-copy requester req [ssl nssl]))
@@ -272,13 +276,17 @@
   (syntax-case stx ()
     [(_ method verb)
      #'(define (method req uri #:data [data #f] #:params [params '()])
-         (let ([nuri (make-uri uri params)]
-               [host (requester-host req)]
-               [headers (requester-headers req)]
-               [ssl (requester-ssl req)])
+         (let* ([nuri (make-uri uri params)]
+                [host (requester-host req)]
+                [headers (requester-headers req)]
+                [ssl (requester-ssl req)]
+                [port (cond [(requester-port req)]
+                            [ssl 443]
+                            [else 80])])
            (let-values ([(status resp-headers response)
-                         (http-sendrecv host nuri #:ssl? ssl #:method verb
-                                        #:headers headers #:data data)])
+                         (http-sendrecv host nuri #:ssl? ssl #:port port
+                                        #:method verb #:headers headers
+                                        #:data data)])
              (define response-code (get-status-code status))
 
              ;; Raise HTTP exn if we get an HTTP error code
@@ -383,6 +391,9 @@
    (requester-headers hdrs2)
    '("Accept: text/html; charset=utf-8"
      "Authorization: Basic Zm9vOmJhcg=="))
+
+  (define port0 (update-port json-requester 8080))
+  (check-equal? (requester-port port0) 8080)
   
   (define ssl0 (update-ssl json-requester #t))
   (check-equal? (requester-ssl ssl0) #t)

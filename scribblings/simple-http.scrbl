@@ -81,7 +81,7 @@ Requests are made by creating requesters and using functions to update them with
 relevant data such as base url, use SSL, etc.
 
 @defstruct[
- requester ([host string?] [headers hash?] [ssl boolean?] [type symbol?])
+ requester ([host string?] [headers hash?] [port integer?] [ssl boolean?] [type symbol?])
  #:transparent]{
   Stores information about the types of requests to make (headers). You usually
   don't need to use this directly, pre-loaded requesters are provided for you.
@@ -103,6 +103,14 @@ relevant data such as base url, use SSL, etc.
           [host string?])
          requester?]{
   Change the host string in a requester. Returns the updated requester.
+}
+
+@defproc[(update-port
+          [requester requester?]
+          [port integer?])
+         requester?]{
+  Change the port in a requester. This overrides the default port, which is
+  443 for SSL requests or 80 otherwise. Returns the updated requester.
 }
 
 @defproc[(update-ssl
