@@ -26,6 +26,7 @@
          html-requester
          json-requester
          xml-requester
+         text-requester
          update-host
          update-headers
          update-port
