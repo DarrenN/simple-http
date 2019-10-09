@@ -38,6 +38,7 @@
          patch
          delete
          get-status
+         get-status-code
          get-response-type
          get-headers
          http-error?
@@ -160,6 +161,10 @@
     [(xml-response? resp) (xml-response-status resp)]
     [(text-response? resp) (text-response-status resp)]))
 
+(define (get-status-code resp)
+  (let ([status (get-status resp)])
+    (and status (extract-status-code status))))
+
 (define (get-response-type resp)
   (cond
     [(json-response? resp) "json"]
@@ -171,11 +176,14 @@
 ;; https://www.iana.org/assignments/http-status-codes/http-status-codes.xhtml
 
 ;; Return HTTP code as a number from response bytes
-(define (get-status-code status-bytes)
-  (string->number
-   (car (regexp-match
-         #px"\\d{3}"
-         (bytes->string/utf-8 status-bytes)))))
+(define (extract-status-code status-bytes)
+  (let ([status (if (bytes? status-bytes)
+                  (bytes->string/utf-8 status-bytes)
+                  status-bytes)])
+    (string->number
+      (car (regexp-match
+             #px"\\d{3}"
+             status)))))
 
 (define (http-error? resp)
   (let ([status (get-status resp)])
@@ -295,7 +303,7 @@
                          (http-sendrecv host nuri #:ssl? ssl #:port port
                                         #:method verb #:headers headers
                                         #:data data)])
-             (define response-code (get-status-code status))
+             (define response-code (extract-status-code status))
 
              ;; Raise HTTP exn if we get an HTTP error code
              (when (> response-code 399)
@@ -431,6 +439,11 @@
   (check-equal? (get-status hresp) "HTTP/1.1 200 OK")
   (check-equal? (get-status xresp) "HTTP/1.1 200 OK")
   (check-equal? (get-status tresp) "HTTP/1.1 200 OK")
+
+  (check-equal? (get-status-code jresp) 200)
+  (check-equal? (get-status-code hresp) 200)
+  (check-equal? (get-status-code xresp) 200)
+  (check-equal? (get-status-code tresp) 200)
 
   ; Headers checking
   (check-equal? (get-headers jresp) hds)
@@ -568,6 +581,7 @@
 
   (check-pred http-success? json-get)
   (check-equal? (json-response-status json-get) "HTTP/1.1 200 OK")
+  (check-equal? (get-status-code json-get) 200)
   (check-pred jsexpr? json-get-body)
 
   (define https-json (update-ssl httpbin-json #t))
