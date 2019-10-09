@@ -39,6 +39,7 @@
          delete
          get-status
          get-response-type
+         get-headers
          http-error?
          http-redirect?
          http-success?
@@ -79,6 +80,13 @@
 
 ;; Header utilities
 ;; ================
+
+(define (get-headers resp)
+  (cond
+    [(json-response? resp) (json-response-headers resp)]
+    [(html-response? resp) (html-response-headers resp)]
+    [(xml-response? resp) (xml-response-headers resp)]
+    [(text-response? resp) (text-response-headers resp)]))
 
 ;; Convert header list into immutable hash
 (define (map-headers headers)
@@ -422,6 +430,12 @@
   (check-equal? (get-status hresp) "HTTP/1.1 200 OK")
   (check-equal? (get-status xresp) "HTTP/1.1 200 OK")
   (check-equal? (get-status tresp) "HTTP/1.1 200 OK")
+
+  ; Headers checking
+  (check-equal? (get-headers jresp) hds)
+  (check-equal? (get-headers hresp) hds)
+  (check-equal? (get-headers xresp) hds)
+  (check-equal? (get-headers tresp) hds)
 
   (define r200 (json-response "HTTP/1.1 200 OK" hds body))
   (define r201 (json-response "HTTP/1.1 201 Created" hds body))
