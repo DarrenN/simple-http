@@ -44,7 +44,7 @@ depending on which @racket[requester?] is used.
 
           ; Query params for the request
           (define params '((foo . "12") (bar . "hello")))
-          
+
           ; Make a GET to https://httpbin.org/get?foo=12&bar=hello
           (define response (get httpbin-org "/get" #:params params)))
 
@@ -265,7 +265,7 @@ then a @racket[exn:fail:network:http:read?] will be raised.
             (Connection . "close")
             (Content-Type . "application/json")
             (Accept . "application/json"))
-  ] 
+  ]
 }
 
 @section{Exceptions}
@@ -273,7 +273,7 @@ then a @racket[exn:fail:network:http:read?] will be raised.
 @defstruct[
    exn:fail:network:http:read
    ([message string?]
-    [continuation-marks continuation-mark-set?] 
+    [continuation-marks continuation-mark-set?]
     [type symbol?])
    #:transparent]{
   Raised when a response is either the wrong format (ex: HTML returned for a
