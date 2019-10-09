@@ -38,6 +38,7 @@
          patch
          delete
          get-status
+         get-status-code
          get-response-type
          get-headers
          http-error?
@@ -68,7 +69,6 @@
 (struct xml-response (status headers body) #:transparent)
 
 ;; Requesters carry context for HTTP calls (host, ssl?, default headers...)
-
 (struct requester (host headers port ssl type) #:transparent)
 
 ;; TODO: Maybe add a form-post-requester
@@ -161,6 +161,10 @@
     [(xml-response? resp) (xml-response-status resp)]
     [(text-response? resp) (text-response-status resp)]))
 
+(define (get-status-code resp)
+  (let ([status (get-status resp)])
+    (and status (extract-status-code status))))
+
 (define (get-response-type resp)
   (cond
     [(json-response? resp) "json"]
@@ -172,11 +176,14 @@
 ;; https://www.iana.org/assignments/http-status-codes/http-status-codes.xhtml
 
 ;; Return HTTP code as a number from response bytes
-(define (get-status-code status-bytes)
-  (string->number
-   (car (regexp-match
-         #px"\\d{3}"
-         (bytes->string/utf-8 status-bytes)))))
+(define (extract-status-code status-bytes)
+  (let ([status (if (bytes? status-bytes)
+                  (bytes->string/utf-8 status-bytes)
+                  status-bytes)])
+    (string->number
+      (car (regexp-match
+             #px"\\d{3}"
+             status)))))
 
 (define (http-error? resp)
   (let ([status (get-status resp)])
@@ -296,7 +303,7 @@
                          (http-sendrecv host nuri #:ssl? ssl #:port port
                                         #:method verb #:headers headers
                                         #:data data)])
-             (define response-code (get-status-code status))
+             (define response-code (extract-status-code status))
 
              ;; Raise HTTP exn if we get an HTTP error code
              (when (> response-code 399)
@@ -306,15 +313,17 @@
                 response))
 
              ;; Raise read exn if the requested content type doesn't match
-             ;; the response content type and isn't a redirect 
+             ;; the response content type and isn't a redirect
              (when
                  (and
                   (or (< response-code 300) (> response-code 309))
                   (false? (correct-content-type? req resp-headers)))
                (make-http-read-exn (map-headers resp-headers) response))
-             
-      (create-response
-       (bytes->string/utf-8 status) (map-headers resp-headers) response))))]))
+
+             (create-response
+               (bytes->string/utf-8 status)
+               (map-headers resp-headers)
+               response))))]))
 
 ;; Sets up functions named after HTTP verbs
 
@@ -338,7 +347,7 @@
 
   ; Headers
   (define headers (map-headers (map string->bytes/utf-8 JSON-HEADERS)))
-  
+
   (check-pred hash-eq? headers)
   (for ([h (hash-keys headers)])
     (check-true (hash-has-key? headers h)))
@@ -403,7 +412,7 @@
 
   (define port0 (update-port json-requester 8080))
   (check-equal? (requester-port port0) 8080)
-  
+
   (define ssl0 (update-ssl json-requester #t))
   (check-equal? (requester-ssl ssl0) #t)
 
@@ -420,7 +429,7 @@
   ; Status checking
   (define hds (make-hash '((Access-Control-Allow-Credentials . ("true")))))
   (define body "body")
-  
+
   (define jresp (json-response "HTTP/1.1 200 OK" hds body))
   (define hresp (html-response "HTTP/1.1 200 OK" hds body))
   (define xresp (xml-response "HTTP/1.1 200 OK" hds body))
@@ -430,6 +439,11 @@
   (check-equal? (get-status hresp) "HTTP/1.1 200 OK")
   (check-equal? (get-status xresp) "HTTP/1.1 200 OK")
   (check-equal? (get-status tresp) "HTTP/1.1 200 OK")
+
+  (check-equal? (get-status-code jresp) 200)
+  (check-equal? (get-status-code hresp) 200)
+  (check-equal? (get-status-code xresp) 200)
+  (check-equal? (get-status-code tresp) 200)
 
   ; Headers checking
   (check-equal? (get-headers jresp) hds)
@@ -461,7 +475,7 @@
   (check-pred http-error? r504)
 
   ; Check responses
-  
+
   (check-pred json-response?
               (call-with-values
                (λ () (values
@@ -499,7 +513,7 @@
                create-response))
 
   ; Check exceptions
-  
+
   (check-exn exn:fail:network:http:read?
              (λ () (call-with-values
                     (λ () (values
@@ -517,7 +531,7 @@
                     create-response)))
 
   ;; HTML Parsing is very permissive, so it won't really fail
-  (check-not-exn 
+  (check-not-exn
    (λ () (call-with-values
           (λ () (values
                  "HTTP 1.1/200 OK"
@@ -559,7 +573,7 @@
            json)
 
   ;; JSON GET requests
-  
+
   (define httpbin-json (update-host json-requester "httpbin.org"))
   (define httpbin-html (update-host html-requester "httpbin.org"))
   (define json-get (get httpbin-json "/get"))
@@ -567,6 +581,7 @@
 
   (check-pred http-success? json-get)
   (check-equal? (json-response-status json-get) "HTTP/1.1 200 OK")
+  (check-equal? (get-status-code json-get) 200)
   (check-pred jsexpr? json-get-body)
 
   (define https-json (update-ssl httpbin-json #t))
@@ -595,10 +610,10 @@
      (get httpbin-json "/code/405")) 'html)
 
   ;; JSON POST/PUT/PATCH requests
-  
+
   (define json-data
     (jsexpr->string (make-hasheq '((colossal-squid . "drumbones")))))
-  
+
   (define json-post (post httpbin-json "/post" #:data json-data))
   (check-equal?
    (hash-ref (json-response-body json-post) 'data)
