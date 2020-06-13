@@ -1,5 +1,7 @@
 # simple-http [![Build Status](https://travis-ci.org/DarrenN/simple-http.svg?branch=master)](https://travis-ci.org/DarrenN/simple-http) [![Coverage Status](https://coveralls.io/repos/github/DarrenN/simple-http/badge.svg?branch=master)](https://coveralls.io/github/DarrenN/simple-http?branch=master)
 
+**:warning: You probably want to use [http-easy](https://docs.racket-lang.org/http-easy/index.html) instead.**
+
 Make simple HTTP requests with Racket
 
 ```racket
